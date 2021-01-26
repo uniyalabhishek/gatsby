@@ -1,6 +1,7 @@
 const sharp = require(`./safe-sharp`)
 const { generateImageData } = require(`./image-data`)
 const imageSize = require(`probe-image-size`)
+const { isCI } = require(`gatsby-core-utils`)
 
 const _ = require(`lodash`)
 const fs = require(`fs-extra`)
@@ -151,6 +152,17 @@ function createJob(job, { reporter }) {
   return promise
 }
 
+function lazyJobsEnabled() {
+  return (
+    process.env.gatsby_executing_command === `develop` &&
+    !isCI() &&
+    !(
+      process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `true` ||
+      process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `1`
+    )
+  )
+}
+
 function queueImageResizing({ file, args = {}, reporter }) {
   const fullOptions = healOptions(getPluginOptions(), args, file.extension)
   const {
@@ -170,13 +182,7 @@ function queueImageResizing({ file, args = {}, reporter }) {
       inputPaths: [file.absolutePath],
       outputDir,
       args: {
-        isLazy:
-          !(
-            process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `true` ||
-            process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `1`
-          ) &&
-          process.env.gatsby_executing_command === `develop` &&
-          !!process.env.GATSBY_EXPERIMENTAL_LAZY_IMAGES,
+        isLazy: lazyJobsEnabled(),
         operations: [
           {
             outputPath: relativePath,
@@ -244,13 +250,7 @@ function batchQueueImageResizing({ file, transforms = [], reporter }) {
         file.internal.contentDigest
       ),
       args: {
-        isLazy:
-          !(
-            process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `true` ||
-            process.env.ENABLE_GATSBY_EXTERNAL_JOBS === `1`
-          ) &&
-          process.env.gatsby_executing_command === `develop` &&
-          !!process.env.GATSBY_EXPERIMENTAL_LAZY_IMAGES,
+        isLazy: lazyJobsEnabled(),
         operations,
         pluginOptions: getPluginOptions(),
       },
@@ -329,7 +329,13 @@ async function generateBase64({ file, args = {}, reporter }) {
 
   // duotone
   if (options.duotone) {
-    pipeline = await duotone(options.duotone, options.toFormat, pipeline)
+    if (options.duotone.highlight && options.duotone.shadow) {
+      pipeline = await duotone(options.duotone, options.toFormat, pipeline)
+    } else {
+      reporter.warn(
+        `Invalid duotone option specified for ${file.absolutePath}, ignoring. Please pass an object to duotone with the keys "highlight" and "shadow" set to the corresponding hex values you want to use.`
+      )
+    }
   }
   let buffer
   let info
@@ -341,7 +347,7 @@ async function generateBase64({ file, args = {}, reporter }) {
     info = result.info
   } catch (err) {
     reportError(
-      `Failed to process image ${file.absolutePath}. 
+      `Failed to process image ${file.absolutePath}.
 It is probably corrupt, so please try replacing it.  If it still fails, please open an issue with the image attached.`,
       err,
       reporter
@@ -773,3 +779,4 @@ exports.getImageSize = getImageSize
 exports.getImageSizeAsync = getImageSizeAsync
 exports.stats = stats
 exports._unstable_createJob = createJob
+exports._lazyJobsEnabled = lazyJobsEnabled
